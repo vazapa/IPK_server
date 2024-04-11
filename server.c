@@ -3,8 +3,6 @@
 #define MAX_CLIENTS 3
 
 /* TODO
-- poslat zpravu vsem ze uzivatel se pripojil
-- poslat zpravu vsem klientum ze uzivatel leavnul
 - join vyresit
 - asi kontrolovani spravnosti loginu atd
 */
@@ -17,7 +15,6 @@ struct Client {
 
 
 char *MessageContent;
-// char *display_name;
 char buffer[];
 volatile sig_atomic_t keepRunning = 1;
 
@@ -26,12 +23,10 @@ void intHandler(int sig) {
 }
 
 void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
-    
-    
     struct Client user[MAX_CLIENTS] = {0};
 
 
-
+    /* ------- SERVER/SOCKET INFO -------*/
     //TCP socket creation
     int welcome_socket = socket(AF_INET, SOCK_STREAM, 0); 
     if (welcome_socket <= 0)
@@ -63,7 +58,7 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
     struct sockaddr *comm_addr = NULL;
     socklen_t comm_addr_size;
 
- // Set of socket descriptors
+    // Set of socket descriptors
     fd_set readfds;
     int max_sd; // Maximum socket descriptor
 
@@ -77,6 +72,9 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
 
     struct sockaddr_in client_address;
     socklen_t client_address_size = sizeof(client_address);
+    /* ------- SERVER/SOCKET INFO -------*/
+
+
     // Main loop
     while (keepRunning) {
         // Clear the socket set
@@ -105,6 +103,7 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
             perror("select error");
         }
 
+        /* ---------- ACCEPT ---------- */
         // If something happened on the master socket, then it's an incoming connection
         if (FD_ISSET(welcome_socket, &readfds)) {
             struct sockaddr_in client_address;
@@ -115,9 +114,6 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                 // exit(EXIT_FAILURE);
                 break;
             }
-            // Inform user of socket number - used in send and receive commands
-            // printf("New connection, socket fd is %d, ip is: %s, port is %d\n", new_socket, inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
-
             // Add new socket to array of sockets
             for (int i = 0; i < MAX_CLIENTS; i++) {
                 if (client_sockets[i] == 0) {
@@ -126,9 +122,9 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                 }
             }
         }
+        /* ---------- ACCEPT ---------- */
         
-        
-
+        /* ---------- COMM LOOP ---------- */
         // Else it's some IO operation on some other socket
         for (int i = 0; i < MAX_CLIENTS; i++) {
             // user->socket_sd = client_sockets[i];
@@ -146,15 +142,41 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                     // printf("Host disconnected, ip %s, port %d\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
 
                     // Close the socket and mark as 0 in list for reuse
+                    shutdown(sd, SHUT_RDWR); 
+                    shutdown(client_sockets[i], SHUT_RDWR); 
                     close(sd);
+                    close(client_sockets[i]);
                     client_sockets[i] = 0;
                 } else {
                     if(strncmp(buffer,"AUTH",4) == 0){ // TODO checknout spravnost
                         printf("RECV %s:%d | AUTH\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
+
+                        /* TODO UDELAT JEDNOSUSSI*/
+                        char *login_message = buffer + 5; // Move past "AUTH "
+                        char *display_name_start = strstr(login_message, "AS") + 3;
+                        char *display_name_end = strstr(display_name_start, " ");
+                        *display_name_end = '\0'; // Null-terminate the display name
+                        char *display_name = strdup(display_name_start);
+
+                        // Store the display name of the client
+                        user[i].display_name = display_name;
+                        /* TODO UDELAT JEDNOSUSSI*/
+
+
+
                         memset(buffer, 0, BUFFER_SIZE);
                         snprintf(buffer, BUFFER_SIZE, "REPLY OK IS Sucesful auth\r\n"); 
                         send(sd, buffer, strlen(buffer), 0);
                         printf("SENT %s:%d | REPLY\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
+
+                        for (int j = 0; j < MAX_CLIENTS; j++) {
+                                if (client_sockets[j] > 0 && client_sockets[j] != sd) {
+                                    // Send notification to other clients
+                                    memset(buffer, 0, BUFFER_SIZE);
+                                    snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s joined the channel\r\n", user[i].display_name);
+                                    send(client_sockets[j], buffer, strlen(buffer), 0);
+                                }
+                        }
                         continue;
                     }else if(strncmp(buffer,"MSG",3) == 0){
                         //MSG FROM displej IS zprava
@@ -164,14 +186,10 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                         MessageContent = strstr(buffer_copy, "IS"); //strcasestr
                         
                         if (MessageContent != NULL) {
-                            user->display_name = strtok(buffer_copy + 9, " ");
-                            char *display_name2 = malloc(sizeof(user->display_name));
-
-                            strcpy(display_name2,user->display_name);
                             MessageContent += 3;
-                            // printf("%s: %s",display_name, MessageContent);
+                            
                             memset(buffer, 0, BUFFER_SIZE);
-                            snprintf(buffer, BUFFER_SIZE, "MSG FROM %s IS %s\r\n",display_name2,MessageContent);
+                            snprintf(buffer, BUFFER_SIZE, "MSG FROM %s IS %s",user[i].display_name,MessageContent);
                             for (int j = 0; j < MAX_CLIENTS; j++) { //Sending messages from one client to others
                                 int dest_socket = client_sockets[j];
                                 if (dest_socket != sd && dest_socket > 0) {
@@ -179,6 +197,25 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                                 }
                             }
                         }
+                    }else if(strncmp(buffer,"ERR",3)){
+                        printf("RECV %s:%d | ERR\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
+                            // Iterate over all client sockets
+                            for (int j = 0; j < MAX_CLIENTS; j++) {
+                                if (client_sockets[j] > 0 && client_sockets[j] != sd) {
+                                    // Send notification to other clients
+                                    memset(buffer, 0, BUFFER_SIZE);
+                                    snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s left the channel\r\n", user[i].display_name);
+                                    send(client_sockets[j], buffer, strlen(buffer), 0);
+                                    
+                                }
+                            }
+                            shutdown(sd, SHUT_RDWR); 
+                            shutdown(client_sockets[i], SHUT_RDWR); 
+
+                            close(sd);
+                            close(client_sockets[i]);
+                            client_sockets[i] = 0;
+                            continue;
                     }else if(strncmp(buffer,"BYE",3) == 0){
                             printf("RECV %s:%d | BYE\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
                             // Iterate over all client sockets
@@ -186,39 +223,42 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                                 if (client_sockets[j] > 0 && client_sockets[j] != sd) {
                                     // Send notification to other clients
                                     memset(buffer, 0, BUFFER_SIZE);
-                                    snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s left the channel\n", user[i].display_name);
+                                    snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s left the channel\r\n", user[i].display_name);
                                     send(client_sockets[j], buffer, strlen(buffer), 0);
+                                    
                                 }
                             }
+                            shutdown(sd, SHUT_RDWR); 
+                            shutdown(client_sockets[i], SHUT_RDWR); 
                             close(sd);
+                            close(client_sockets[i]);
                             client_sockets[i] = 0;
                     }
                     memset(buffer, 0, BUFFER_SIZE);
-                    
-                    // Echo back the message that came in
-                    // buffer[valread] = '\0'; // Null-terminate the string
-                    // printf("Message: %s\n",buffer);
-                    // send(sd, buffer, strlen(buffer), 0);
                 }
             }
         }
-    
-
-
     }
+    /* ---------- COMM LOOP ---------- */
+
+    /* ---------- LOOP END ---------- */
     for (int i = 0; i < MAX_CLIENTS; i++) {
         user->socket_sd = client_sockets[i];
         if (user->socket_sd > 0) {
             // Send BYE message
             getpeername(user->socket_sd, (struct sockaddr *) &client_address, &client_address_size); //TODO mozna pouzit neco jineho
             printf("SENT %s:%d | BYE\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
-            send(user->socket_sd, "BYE", strlen("BYE"), 0);
+            snprintf(buffer, BUFFER_SIZE, "BYE\r\n");
+            send(user->socket_sd, buffer, strlen(buffer), 0);
             // Close socket
-            close(user->socket_sd);
+            
+            shutdown(client_sockets[i], SHUT_RDWR); 
+            close(client_sockets[i]);
             // Mark socket as 0 in the list
             client_sockets[i] = 0;
         }
     }
     shutdown(welcome_socket, SHUT_RDWR); 
     close(welcome_socket); 
+    /* ---------- LOOP END ---------- */
 }
