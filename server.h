@@ -7,6 +7,8 @@
 #include <sys/select.h>
 #include <errno.h>
 #include <arpa/inet.h> 
+#include <signal.h>
+#include <fcntl.h>
 
 
 
