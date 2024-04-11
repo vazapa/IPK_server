@@ -27,7 +27,9 @@ void intHandler(int sig) {
 
 void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
     
-    struct Client user[MAX_CLIENTS];
+    
+    struct Client user[MAX_CLIENTS] = {0};
+
 
 
     //TCP socket creation
@@ -86,15 +88,15 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
 
         // Add child sockets to set
         for (int i = 0; i < MAX_CLIENTS; i++) {
-            user->socket_sd = client_sockets[i];
+            int sd = client_sockets[i];
 
             // If valid socket descriptor, add to read list
-            if (user->socket_sd > 0)
-                FD_SET(user->socket_sd, &readfds);
+            if (sd > 0)
+                FD_SET(sd, &readfds);
 
             // Get the highest file descriptor number
-            if (user->socket_sd > max_sd)
-                max_sd = user->socket_sd;
+            if (sd > max_sd)
+                max_sd = sd;
         }
 
         // Wait for activity on any of the sockets
@@ -118,7 +120,6 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
 
             // Add new socket to array of sockets
             for (int i = 0; i < MAX_CLIENTS; i++) {
-                // If position is empty
                 if (client_sockets[i] == 0) {
                     client_sockets[i] = new_socket;
                     break;
@@ -130,28 +131,29 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
 
         // Else it's some IO operation on some other socket
         for (int i = 0; i < MAX_CLIENTS; i++) {
-            user->socket_sd = client_sockets[i];
+            // user->socket_sd = client_sockets[i];
+            int sd = client_sockets[i];
 
             
 
-            if (FD_ISSET(user->socket_sd, &readfds)) {
+            if (FD_ISSET(sd, &readfds)) {
                 // Check if it was for closing, and also read the incoming message
-                getpeername(user->socket_sd, (struct sockaddr *) &client_address, &client_address_size); //TODO mozna pouzit neco jineho
+                getpeername(sd, (struct sockaddr *) &client_address, &client_address_size); //TODO mozna pouzit neco jineho
                 memset(buffer, 0, BUFFER_SIZE);
-                int valread = recv(user->socket_sd, buffer, BUFFER_SIZE, 0);
+                int valread = recv(sd, buffer, BUFFER_SIZE, 0);
                 if (valread == 0) {
                     // Somebody disconnected, get his details and print
                     // printf("Host disconnected, ip %s, port %d\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
 
                     // Close the socket and mark as 0 in list for reuse
-                    close(user->socket_sd);
+                    close(sd);
                     client_sockets[i] = 0;
                 } else {
                     if(strncmp(buffer,"AUTH",4) == 0){ // TODO checknout spravnost
                         printf("RECV %s:%d | AUTH\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
                         memset(buffer, 0, BUFFER_SIZE);
                         snprintf(buffer, BUFFER_SIZE, "REPLY OK IS Sucesful auth\r\n"); 
-                        send(user->socket_sd, buffer, strlen(buffer), 0);
+                        send(sd, buffer, strlen(buffer), 0);
                         printf("SENT %s:%d | REPLY\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
                         continue;
                     }else if(strncmp(buffer,"MSG",3) == 0){
@@ -170,25 +172,25 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                             // printf("%s: %s",display_name, MessageContent);
                             memset(buffer, 0, BUFFER_SIZE);
                             snprintf(buffer, BUFFER_SIZE, "MSG FROM %s IS %s\r\n",display_name2,MessageContent);
-                            for (int i = 0; i < MAX_CLIENTS; i++) { //Sending messages from one client to others
-                                // int sd = client_sockets[i];
-                                if(user->socket_sd != client_sockets[i]){
-                                    send(client_sockets[i], buffer, strlen(buffer), 0);
+                            for (int j = 0; j < MAX_CLIENTS; j++) { //Sending messages from one client to others
+                                int dest_socket = client_sockets[j];
+                                if (dest_socket != sd && dest_socket > 0) {
+                                    send(dest_socket, buffer, strlen(buffer), 0);
                                 }
                             }
                         }
                     }else if(strncmp(buffer,"BYE",3) == 0){
                             printf("RECV %s:%d | BYE\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
                             // Iterate over all client sockets
-                            for (int i = 0; i < MAX_CLIENTS; i++) {
-                                if (client_sockets[i] > 0 && client_sockets[i] != user->socket_sd) {
+                            for (int j = 0; j < MAX_CLIENTS; j++) {
+                                if (client_sockets[j] > 0 && client_sockets[j] != sd) {
                                     // Send notification to other clients
                                     memset(buffer, 0, BUFFER_SIZE);
-                                    snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s left the channel\n", user->display_name);
-                                    send(client_sockets[i], buffer, strlen(buffer), 0);
+                                    snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s left the channel\n", user[i].display_name);
+                                    send(client_sockets[j], buffer, strlen(buffer), 0);
                                 }
                             }
-                            close(user->socket_sd);
+                            close(sd);
                             client_sockets[i] = 0;
                     }
                     memset(buffer, 0, BUFFER_SIZE);
