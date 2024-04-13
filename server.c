@@ -4,14 +4,18 @@
 #define MAX_CHANNELS 3
 
 /* TODO
-- join vyresit
 - asi kontrolovani spravnosti loginu atd
+-It is required that, by default, 
+any combination of a valid username (Username), display name (DisplayName) and secret (Secret) will be authenticated successfully by the server. 
+Assuming a single connection per unique user account (username) at the most.
+- server shall never use the Username of the authenticated user as their DisplayName
 */
 
 
 struct Client {
     int socket_sd;
     char *display_name; // TODO max cisla
+    char *channel_name;
 };
 
 
@@ -23,9 +27,37 @@ void intHandler(int sig) {
     keepRunning = 0;
 }
 
+struct sockaddr_in adress_fill(uint16_t port){
+    struct sockaddr_in server_address; 
+
+    memset(&server_address, 0, sizeof(server_address));
+    server_address.sin_family = AF_INET; 
+    server_address.sin_addr.s_addr = htonl(INADDR_ANY); 
+    server_address.sin_port = htons(port);
+    
+    return server_address;
+}
+
 void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
-    struct Client user[MAX_CLIENTS] = {0};
     printf("%d%d%d%s",port,udp_ret,udp_timeout,ip_addr);
+    struct Client user[MAX_CLIENTS] = {0};
+    
+    // Set of socket descriptors
+    fd_set readfds;
+    int max_sd; // Maximum socket descriptor
+
+    struct sockaddr_in client_address;
+    socklen_t client_address_size = sizeof(client_address);
+    struct sockaddr_in server_address = adress_fill(port);
+    struct sockaddr *address = (struct sockaddr *) &server_address; 
+    int address_size = sizeof(server_address);
+
+    int max_waiting_connections = 3; // TODO zvysit
+    int enable = 1; // TOOD umoznuje rychle znovu nastaveni portu, idk jestli to mame pouzit
+
+    // Client socket descriptors
+    int client_sockets[MAX_CLIENTS] = {0};
+    signal(SIGINT, intHandler); //ctrl+c and ctrl+c
 
     /* ------- SERVER/SOCKET INFO -------*/
     //TCP socket creation
@@ -34,45 +66,21 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
     {
         fprintf(stderr,"ERR: with creating TCP socket");
     }
-    int enable = 1; // TOOD umoznuje rychle znovu nastaveni portu, idk jestli to mame pouzit
+    
     setsockopt(welcome_socket, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
 
-
-    struct sockaddr_in server_address; 
-
-    memset(&server_address, 0, sizeof(server_address));
-    server_address.sin_family = AF_INET; 
-    server_address.sin_addr.s_addr = htonl(INADDR_ANY); 
-    server_address.sin_port = htons(port);
-    struct sockaddr *address = (struct sockaddr *) &server_address; 
-    int address_size = sizeof(server_address);
-    
     if (bind(welcome_socket, address, address_size) < 0) { //TOOD: &address nebo address ?
         fprintf(stderr,"ERR: with TCP bind");
     }
 
-    int max_waiting_connections = 3; // TODO zvysit
     if (listen(welcome_socket, max_waiting_connections) < 0) {
         fprintf(stderr,"ERR: with TCP listen");
     }
 
-    // struct sockaddr *comm_addr = NULL;
-    // socklen_t comm_addr_size;
-
-    // Set of socket descriptors
-    fd_set readfds;
-    int max_sd; // Maximum socket descriptor
-
-    // Client socket descriptors
-    int client_sockets[MAX_CLIENTS] = {0};
-    signal(SIGINT, intHandler); //ctrl+c and ctrl+c
-
-
     int flags = fcntl(welcome_socket, F_GETFL, 0);
     fcntl(welcome_socket, F_SETFL, flags | O_NONBLOCK);
 
-    struct sockaddr_in client_address;
-    socklen_t client_address_size = sizeof(client_address);
+    
     /* ------- SERVER/SOCKET INFO -------*/
 
 
@@ -170,15 +178,37 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                         send(sd, buffer, strlen(buffer), 0);
                         printf("SENT %s:%d | REPLY\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
 
+                        user[i].channel_name = "general";
+
                         for (int j = 0; j < MAX_CLIENTS; j++) {
-                                if (client_sockets[j] > 0 && client_sockets[j] != sd) {
+                                if (client_sockets[j] > 0 && client_sockets[j] != sd && strcmp(user[i].channel_name, user[j].channel_name) == 0) {
                                     // Send notification to other clients
                                     memset(buffer, 0, BUFFER_SIZE);
-                                    snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s joined the channel\r\n", user[i].display_name);
+                                    snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s joined the %s\r\n", user[i].display_name,user[i].channel_name);
                                     send(client_sockets[j], buffer, strlen(buffer), 0);
                                 }
                         }
+                        
                         continue;
+                    }else if(strncmp(buffer,"JOIN",4) == 0){ //TODO handle reply
+                        //JOIN channel_name AS Display_name
+                        printf("RECV %s:%d | JOIN\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
+                        char *token =  buffer + 4;
+                        token = strtok(token," ");
+                        user[i].channel_name = strdup(token);
+                        memset(buffer, 0, BUFFER_SIZE);
+                        snprintf(buffer, BUFFER_SIZE, "REPLY OK IS Sucesful join\r\n");//TODO tweak na REPLY!
+                        send(sd, buffer, strlen(buffer), 0); 
+                        printf("SENT %s:%d | REPLY\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
+                        for (int j = 0; j < MAX_CLIENTS; j++) {
+                                if (client_sockets[j] > 0 && client_sockets[j] != sd && strcmp(user[i].channel_name, user[j].channel_name) == 0) {
+                                    // Send notification to other clients
+                                    memset(buffer, 0, BUFFER_SIZE);
+                                    snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s joined the %s\r\n", user[i].display_name,user[i].channel_name);
+                                    send(client_sockets[j], buffer, strlen(buffer), 0);
+                                }
+                        }
+
                     }else if(strncmp(buffer,"MSG",3) == 0){
                         //MSG FROM displej IS zprava
                         printf("RECV %s:%d | MSG\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
@@ -193,19 +223,20 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                             snprintf(buffer, BUFFER_SIZE, "MSG FROM %s IS %s",user[i].display_name,MessageContent);
                             for (int j = 0; j < MAX_CLIENTS; j++) { //Sending messages from one client to others
                                 int dest_socket = client_sockets[j];
-                                if (dest_socket != sd && dest_socket > 0) {
+                                if (dest_socket != sd && dest_socket > 0 && strcmp(user[i].channel_name, user[j].channel_name) == 0 ) {
                                     send(dest_socket, buffer, strlen(buffer), 0);
                                 }
+                                
                             }
                         }
-                    }else if(strncmp(buffer,"ERR",3)){
+                    }else if(strncmp(buffer,"ERR",3) == 0){
                         printf("RECV %s:%d | ERR\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
                             // Iterate over all client sockets
                             for (int j = 0; j < MAX_CLIENTS; j++) {
                                 if (client_sockets[j] > 0 && client_sockets[j] != sd) {
                                     // Send notification to other clients
                                     memset(buffer, 0, BUFFER_SIZE);
-                                    snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s left the channel\r\n", user[i].display_name);
+                                    snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s left the %s\r\n", user[i].display_name,user[i].channel_name);
                                     send(client_sockets[j], buffer, strlen(buffer), 0);
                                     
                                 }
@@ -221,10 +252,11 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                             printf("RECV %s:%d | BYE\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
                             // Iterate over all client sockets
                             for (int j = 0; j < MAX_CLIENTS; j++) {
-                                if (client_sockets[j] > 0 && client_sockets[j] != sd) {
+                                if (client_sockets[j] > 0 && client_sockets[j] != sd && strcmp(user[i].channel_name, user[j].channel_name) == 0) {
                                     // Send notification to other clients
                                     memset(buffer, 0, BUFFER_SIZE);
-                                    snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s left the channel\r\n", user[i].display_name);
+                                    printf("channel jmeno: %s\n",user[i].channel_name);
+                                    snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s left the %s\r\n", user[i].display_name, user[i].channel_name);
                                     send(client_sockets[j], buffer, strlen(buffer), 0);
                                     
                                 }
@@ -233,9 +265,14 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                             shutdown(client_sockets[i], SHUT_RDWR); 
                             close(sd);
                             close(client_sockets[i]);
+
+                            free(user[i].channel_name);
+                            free(user[i].display_name);
+                            
                             client_sockets[i] = 0;
                     }
                     memset(buffer, 0, BUFFER_SIZE);
+                    
                 }
             }
         }
@@ -255,6 +292,8 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
             
             shutdown(client_sockets[i], SHUT_RDWR); 
             close(client_sockets[i]);
+
+            
             // Mark socket as 0 in the list
             client_sockets[i] = 0;
         }
