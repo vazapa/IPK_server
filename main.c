@@ -11,7 +11,7 @@
 // -h			                        Prints program help output and exits
 
 
-int main(int argc, char *argv[]){
+int main(){
      
     char ip_addr[]="0.0.0.0";
     uint16_t port = 4567;

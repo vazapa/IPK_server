@@ -1,6 +1,7 @@
 #include "server.h"
 #define BUFFER_SIZE 1024
 #define MAX_CLIENTS 3
+#define MAX_CHANNELS 3
 
 /* TODO
 - join vyresit
@@ -15,7 +16,7 @@ struct Client {
 
 
 char *MessageContent;
-char buffer[];
+char buffer[BUFFER_SIZE];
 volatile sig_atomic_t keepRunning = 1;
 
 void intHandler(int sig) {
@@ -24,7 +25,7 @@ void intHandler(int sig) {
 
 void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
     struct Client user[MAX_CLIENTS] = {0};
-
+    printf("%d%d%d%s",port,udp_ret,udp_timeout,ip_addr);
 
     /* ------- SERVER/SOCKET INFO -------*/
     //TCP socket creation
@@ -50,13 +51,13 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
         fprintf(stderr,"ERR: with TCP bind");
     }
 
-    int max_waiting_connections = 2; // TODO zvysit
+    int max_waiting_connections = 3; // TODO zvysit
     if (listen(welcome_socket, max_waiting_connections) < 0) {
         fprintf(stderr,"ERR: with TCP listen");
     }
 
-    struct sockaddr *comm_addr = NULL;
-    socklen_t comm_addr_size;
+    // struct sockaddr *comm_addr = NULL;
+    // socklen_t comm_addr_size;
 
     // Set of socket descriptors
     fd_set readfds;
