@@ -38,13 +38,76 @@ struct sockaddr_in adress_fill(uint16_t port){
     return server_address;
 }
 
+void handle_udp_packet(int udp_socket) {
+    // Receive and process UDP packet
+    char buffer[BUFFER_SIZE];
+    struct sockaddr_in client_addr;
+    socklen_t addr_len = sizeof(client_addr);
+    ssize_t bytes_rx = recvfrom(udp_socket, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&client_addr, &addr_len);
+    if (bytes_rx < 0) {
+        perror("recvfrom");
+        return;
+    }
+    // Process UDP packet
+    // Example: printf("Received UDP packet: %s\n", buffer)
+    if(buffer[0] == 0x02) { // Check if it's an AUTH message
+        // Parse the message to extract Username, DisplayName, and Secret
+        uint16_t messageID = *(uint16_t*)(buffer + 1);
+        char *username = buffer + 3;
+        char *display_name_start = strchr(username, '\0') + 1;
+        char *display_name_end = strchr(display_name_start, '\0');
+        char *display_name = strndup(display_name_start, display_name_end - display_name_start);
+        
+
+        // Process the authentication message
+        // printf("Received AUTH message from client:\n");
+        // printf("Message ID: %d\n", messageID);
+        // printf("Username: %s\n", username);
+        // printf("Display Name: %s\n", display_name);
+        // printf("Secret: %s\n", secret);
+
+        // Here, you can perform any authentication logic and respond accordingly
+        // For now, let's assume all authentication attempts are successful
+        // You can add your authentication logic here
+        
+        char reply_buffer[BUFFER_SIZE];
+        memset(reply_buffer, 0, BUFFER_SIZE); // Clear the buffer
+
+        // Fill in the REPLY message fields
+        reply_buffer[0] = 0x01; // Message type (REPLY)
+        uint16_t message_id = 1234; // Example MessageID value, replace with the actual value
+        memcpy(reply_buffer + 1, &message_id, sizeof(uint16_t)); // Copy the MessageID to the buffer
+        reply_buffer[3] = 1; // Result (1 for success)
+        uint16_t ref_message_id = 5678; // Example Ref_MessageID value, replace with the actual value
+        memcpy(reply_buffer + 4, &ref_message_id, sizeof(uint16_t)); // Copy the Ref_MessageID to the buffer
+
+        // Set the MessageContents field (replace "Success" with the actual message content)
+        char* message_content = "Success";
+        memcpy(reply_buffer + 6, message_content, strlen(message_content)); // Copy the message content to the buffer
+
+        // Append the null terminator at the end of the MessageContents
+        reply_buffer[6 + strlen(message_content)] = '\0';
+
+        // Calculate the length of the message
+        size_t reply_length = strlen(reply_buffer) + 1; // Include the null terminator
+
+        // Send the REPLY message to the client using sendto
+        sendto(udp_socket, reply_buffer, reply_length, 0, (struct sockaddr *)&client_addr, addr_len);
+    }else if(buffer[0] == 0x04){
+        
+    }
+
+
+
+}
+
 void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
     printf("%d%d%d%s",port,udp_ret,udp_timeout,ip_addr);
     struct Client user[MAX_CLIENTS] = {0};
     
     // Set of socket descriptors
     fd_set readfds;
-    int max_sd; // Maximum socket descriptor
+    int max_sd = 0; // Maximum socket descriptor
 
     struct sockaddr_in client_address;
     socklen_t client_address_size = sizeof(client_address);
@@ -55,6 +118,12 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
     int max_waiting_connections = 3; // TODO zvysit
     int enable = 1; // TOOD umoznuje rychle znovu nastaveni portu, idk jestli to mame pouzit
 
+    int udp_socket;
+    udp_socket = socket(AF_INET, SOCK_DGRAM, 0);
+        if (udp_socket < 0) {
+            perror("UDP socket creation failed");
+            exit(EXIT_FAILURE);
+        }
     // Client socket descriptors
     int client_sockets[MAX_CLIENTS] = {0};
     signal(SIGINT, intHandler); //ctrl+c and ctrl+c
@@ -69,6 +138,11 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
     
     setsockopt(welcome_socket, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(enable));
 
+    if (bind(udp_socket, address, address_size) < 0) {
+        perror("UDP bind failed");
+        exit(EXIT_FAILURE);
+    }
+
     if (bind(welcome_socket, address, address_size) < 0) { //TOOD: &address nebo address ?
         fprintf(stderr,"ERR: with TCP bind");
     }
@@ -80,9 +154,15 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
     int flags = fcntl(welcome_socket, F_GETFL, 0);
     fcntl(welcome_socket, F_SETFL, flags | O_NONBLOCK);
 
+    int flags2 = fcntl(udp_socket, F_GETFL, 0);
+    fcntl(udp_socket, F_SETFL, flags2 | O_NONBLOCK);
+
     
     /* ------- SERVER/SOCKET INFO -------*/
-
+    FD_SET(udp_socket, &readfds); 
+    if (udp_socket > max_sd) {
+        max_sd = udp_socket;
+    }
 
     // Main loop
     while (keepRunning) {
@@ -92,6 +172,7 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
         // Add the master socket to the set
         FD_SET(welcome_socket, &readfds);
         max_sd = welcome_socket;
+        // FD_SET(udp_socket, &readfds); 
 
         // Add child sockets to set
         for (int i = 0; i < MAX_CLIENTS; i++) {
@@ -106,10 +187,19 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                 max_sd = sd;
         }
 
+        FD_SET(udp_socket, &readfds);
+        if (udp_socket > max_sd) {
+            max_sd = udp_socket;
+        }
+
         // Wait for activity on any of the sockets
         int activity = select(max_sd + 1, &readfds, NULL, NULL, NULL);
         if ((activity < 0) && (errno != EINTR)) {
             perror("select error");
+        }
+
+        if (FD_ISSET(udp_socket, &readfds)) {
+            handle_udp_packet(udp_socket);
         }
 
         /* ---------- ACCEPT ---------- */
@@ -278,6 +368,7 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
         }
     }
     /* ---------- COMM LOOP ---------- */
+    close(udp_socket);
 
     /* ---------- LOOP END ---------- */
     for (int i = 0; i < MAX_CLIENTS; i++) {
