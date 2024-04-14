@@ -15,3 +15,4 @@
 void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret);
 struct sockaddr_in adress_fill(uint16_t port);
 void handle_udp_packet(int udp_socket);
+void tcp_accept(int tcp_socket,int client_sockets[]);

@@ -38,9 +38,28 @@ struct sockaddr_in adress_fill(uint16_t port){
     return server_address;
 }
 
+void tcp_accept(int tcp_socket,int client_sockets[]){
+    struct sockaddr_in client_address;
+                socklen_t client_address_size = sizeof(client_address);
+                int new_socket = accept(tcp_socket, (struct sockaddr *) &client_address, &client_address_size);
+                if (new_socket < 0) {
+                    // perror("ERR: accepting connection"); // TODO pri ctrl+c to dela bordel
+                    // exit(EXIT_FAILURE);
+                    // break;
+                }
+                // Add new socket to array of sockets
+                for (int i = 0; i < MAX_CLIENTS; i++) {
+                    if (client_sockets[i] == 0) {
+                        client_sockets[i] = new_socket;
+                        break;
+                    }
+                }
+}
+
 void handle_udp_packet(int udp_socket) {
     // Receive and process UDP packet
     char buffer[BUFFER_SIZE];
+    char reply_buffer[BUFFER_SIZE];
     struct sockaddr_in client_addr;
     socklen_t addr_len = sizeof(client_addr);
     ssize_t bytes_rx = recvfrom(udp_socket, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&client_addr, &addr_len);
@@ -52,6 +71,9 @@ void handle_udp_packet(int udp_socket) {
     // Example: printf("Received UDP packet: %s\n", buffer)
     if(buffer[0] == 0x02) { // Check if it's an AUTH message
         // Parse the message to extract Username, DisplayName, and Secret
+
+        printf("RECV %s:%d | AUTH\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+
         uint16_t messageID = *(uint16_t*)(buffer + 1);
         char *username = buffer + 3;
         char *display_name_start = strchr(username, '\0') + 1;
@@ -70,7 +92,7 @@ void handle_udp_packet(int udp_socket) {
         // For now, let's assume all authentication attempts are successful
         // You can add your authentication logic here
         
-        char reply_buffer[BUFFER_SIZE];
+        
         memset(reply_buffer, 0, BUFFER_SIZE); // Clear the buffer
 
         // Fill in the REPLY message fields
@@ -94,9 +116,12 @@ void handle_udp_packet(int udp_socket) {
         // Send the REPLY message to the client using sendto
         sendto(udp_socket, reply_buffer, reply_length, 0, (struct sockaddr *)&client_addr, addr_len);
     }else if(buffer[0] == 0x04){
-        
+        memset(reply_buffer, 0, BUFFER_SIZE); // Clear the buffer
+        reply_buffer[0] = 0x04;
     }
-
+    // free(display_name);
+    // shutdown(udp_socket,SHUT_RDWR);
+    // close(udp_socket);
 
 
 }
@@ -205,21 +230,7 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
         /* ---------- ACCEPT ---------- */
         // If something happened on the master socket, then it's an incoming connection
         if (FD_ISSET(welcome_socket, &readfds)) {
-            struct sockaddr_in client_address;
-            socklen_t client_address_size = sizeof(client_address);
-            int new_socket = accept(welcome_socket, (struct sockaddr *) &client_address, &client_address_size);
-            if (new_socket < 0) {
-                // perror("ERR: accepting connection"); // TODO pri ctrl+c to dela bordel
-                // exit(EXIT_FAILURE);
-                break;
-            }
-            // Add new socket to array of sockets
-            for (int i = 0; i < MAX_CLIENTS; i++) {
-                if (client_sockets[i] == 0) {
-                    client_sockets[i] = new_socket;
-                    break;
-                }
-            }
+            tcp_accept(welcome_socket,client_sockets);
         }
         /* ---------- ACCEPT ---------- */
         
