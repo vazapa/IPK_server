@@ -81,7 +81,7 @@ def main():
 
     client = IPK24ChatClient(args.s, args.p, args.d, args.r)
     # Authenticate with the desired display name
-    display_name = "Borec1"
+    display_name = "Borec2"
     client.auth_message("username", display_name, "Secret")
 
     try:
