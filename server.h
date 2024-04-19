@@ -18,6 +18,7 @@ struct Client {
     char *display_name; // TODO max cisla
     char *channel_name;
     char *protocol;
+    struct sockaddr_in address;
 };
 
 void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret);

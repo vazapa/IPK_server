@@ -1,6 +1,7 @@
 import socket
 import struct
 import argparse
+import selectors
 import sys
 
 class IPK24ChatClient:
@@ -10,7 +11,10 @@ class IPK24ChatClient:
         self.udp_timeout = udp_timeout
         self.max_retransmissions = max_retransmissions
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.socket.setblocking(False)  # Set socket to non-blocking mode
         self.message_id = 0
+        self.selector = selectors.DefaultSelector()
+        self.selector.register(self.socket, selectors.EVENT_READ, self.receive_message)
 
     def send_message(self, message_type, message_contents=b''):
         header = struct.pack('!B H', message_type, self.message_id)
@@ -18,50 +22,26 @@ class IPK24ChatClient:
         message = header + message_contents
         self.socket.sendto(message, (self.server_address, self.server_port))
 
-    def receive_message(self):
-        message, server_address = self.socket.recvfrom(1024)
-        message_type, message_id = struct.unpack('!B H', message[:3])
-        message_contents = message[3:]
-        return message_type, message_id, message_contents, server_address
-
-    def confirm_message(self, ref_message_id):
-        confirm_message = struct.pack('!B H', 0x00, ref_message_id)
-        self.socket.sendto(confirm_message, (self.server_address, self.server_port))
-
-    def reply_message(self, result, ref_message_id, message_contents=b''):
-        reply_header = struct.pack('!B H B', 0x01, self.message_id, result)
-        self.message_id += 1
-        reply_message = reply_header + struct.pack('!H', ref_message_id) + message_contents
-        self.socket.sendto(reply_message, (self.server_address, self.server_port))
+    def receive_message(self, sock, mask):
+        try:
+            message, server_address = self.socket.recvfrom(1024)
+            message_type, message_id = struct.unpack('!B H', message[:3])
+            message_contents = message[3:]
+            if message_type == 0x04:  # MSG message type
+                sender_name, message_content = message_contents.split(b'\0', 1)
+                print(sender_name.decode() + ": " + message_content.decode())
+        except BlockingIOError:
+            pass
 
     def auth_message(self, username, display_name, secret):
-        auth_message = struct.pack('!B H', 0x02, self.message_id)
-        auth_message += username.encode() + b'\0' + display_name.encode() + b'\0' + secret.encode() + b'\0'
-        self.message_id += 1
-        self.socket.sendto(auth_message, (self.server_address, self.server_port))
-
-    def join_message(self, channel_id, display_name):
-        join_message = struct.pack('!B H', 0x03, self.message_id)
-        join_message += channel_id.encode() + b'\0' + display_name.encode() + b'\0'
-        self.message_id += 1
-        self.socket.sendto(join_message, (self.server_address, self.server_port))
+        message_type = 0x02
+        auth_message = username.encode() + b'\0' + display_name.encode() + b'\0' + secret.encode() + b'\0'
+        self.send_message(message_type, auth_message)
 
     def msg_message(self, display_name, message_contents):
-        msg_message = struct.pack('!B H', 0x04, self.message_id)
-        msg_message += display_name.encode() + b'\0' + message_contents.encode() + b'\0'
-        self.message_id += 1
-        self.socket.sendto(msg_message, (self.server_address, self.server_port))
-
-    def err_message(self, display_name, error_message):
-        err_message = struct.pack('!B H', 0xFE, self.message_id)
-        err_message += display_name.encode() + b'\0' + error_message.encode() + b'\0'
-        self.message_id += 1
-        self.socket.sendto(err_message, (self.server_address, self.server_port))
-
-    def bye_message(self):
-        bye_message = struct.pack('!B H', 0xFF, self.message_id)
-        self.message_id += 1
-        self.socket.sendto(bye_message, (self.server_address, self.server_port))
+        message_type = 0x04
+        msg_message = display_name.encode() + b'\0' + message_contents.encode() + b'\0'
+        self.send_message(message_type, msg_message)
 
 def parse_args():
     parser = argparse.ArgumentParser(description='IPK24-CHAT client')
@@ -84,20 +64,21 @@ def main():
     display_name = "Borec2"
     client.auth_message("username", display_name, "Secret")
 
-    try:
-        while True:
-            # Receive and print messages from the server
-            message_type, message_id, message_contents, server_address = client.receive_message()
-            if message_type == 0x04:  # MSG message type
-                sender_name, message_content = message_contents.split(b'\0', 1)
-                print(sender_name.decode() + ": " + message_content.decode())
+    while True:
+        # Check for incoming messages
+        events = client.selector.select(timeout=0)
+        for key, mask in events:
+            callback = key.data
+            callback(key.fileobj, mask)
 
-            message = input("Enter your message: ")
-            # Use the same display name for sending messages
-            client.msg_message(display_name, message)
-            
-    except KeyboardInterrupt:
-        print("\nExiting...")
+        try:
+            # Non-blocking input handling
+            message = sys.stdin.readline().strip()
+            if message:
+                client.msg_message(display_name, message)
+        except KeyboardInterrupt:
+            print("\nExiting...")
+            break
 
 if __name__ == '__main__':
     main()

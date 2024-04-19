@@ -16,6 +16,9 @@ char buffer[BUFFER_SIZE];
 char reply_buffer[BUFFER_SIZE];
 volatile sig_atomic_t keepRunning = 1;
 bool go = true;
+uint16_t message_id = 0;
+uint8_t ref_id[3];
+uint8_t server_id[3];
 
 void intHandler(int sig) {
     keepRunning = 0;
@@ -34,21 +37,88 @@ struct sockaddr_in adress_fill(uint16_t port){
 
 void tcp_accept(int tcp_socket,int client_sockets[],struct Client user[]){
     struct sockaddr_in client_address;
-                socklen_t client_address_size = sizeof(client_address);
-                int new_socket = accept(tcp_socket, (struct sockaddr *) &client_address, &client_address_size);
-                if (new_socket < 0) {
-                    // perror("ERR: accepting connection"); // TODO pri ctrl+c to dela bordel
-                    // exit(EXIT_FAILURE);
-                    // break;
-                }
-                // Add new socket to array of sockets
-                for (int i = 0; i < MAX_CLIENTS; i++) {
-                    if (client_sockets[i] == 0) {
-                        client_sockets[i] = new_socket;
-                        break;
-                    }
-                }
+    socklen_t client_address_size = sizeof(client_address);
+    int new_socket = accept(tcp_socket, (struct sockaddr *) &client_address, &client_address_size);
+    if (new_socket < 0) {
+        // perror("ERR: accepting connection"); // TODO pri ctrl+c to dela bordel
+        // exit(EXIT_FAILURE);
+        // break;
+    }
+    // Add new socket to array of sockets
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (client_sockets[i] == 0) {
+            client_sockets[i] = new_socket;
+            break;
+        }
+    }
 }
+
+void confirm(char buffer[BUFFER_SIZE],int udp_socket,struct sockaddr_in client_address){
+        
+        socklen_t addr_len = sizeof(client_address);
+        uint16_t ref_messageID = *(uint16_t*)(buffer + 1);
+        ref_id[0] = (uint8_t)(ref_messageID & 0xFF);
+        ref_id[1] = (uint8_t)((ref_messageID >> 8) & 0xFF);
+
+        memset(reply_buffer, 0, BUFFER_SIZE); 
+
+        reply_buffer[0] = 0x00;
+        memcpy(reply_buffer + 1, &ref_messageID,sizeof(u_int16_t));
+        sendto(udp_socket, reply_buffer, 3, 0, (struct sockaddr *)&client_address, addr_len);
+
+        memset(reply_buffer, 0, BUFFER_SIZE); 
+}
+
+void udp_auth(int udp_socket,struct Client user[MAX_CLIENTS],int client_sockets[], struct sockaddr_in client_address){
+
+        socklen_t addr_len = sizeof(client_address);        
+        reply_buffer[0] = 0x01; // Message type (REPLY)
+        message_id++; 
+        server_id[0] = (uint8_t)(message_id & 0xFF);
+        server_id[1] = (uint8_t)((message_id >> 8) & 0xFF);
+
+        
+        memcpy(reply_buffer + 1, &server_id, sizeof(uint16_t));
+        reply_buffer[3] = 1; 
+        
+        memcpy(reply_buffer + 4, &ref_id, sizeof(uint8_t)); 
+
+        char* message_content = "Success";
+        memcpy(reply_buffer + 6, message_content, strlen(message_content)); 
+
+        // Append the null terminator at the end of the MessageContents
+        reply_buffer[6 + strlen(message_content)] = '\0';
+
+        
+        size_t reply_length = strlen(reply_buffer) + 1; // Include the null terminator
+
+        sendto(udp_socket, reply_buffer, reply_length + 11, 0, (struct sockaddr *)&client_address, addr_len);
+}
+
+void udp_message(struct Client user[MAX_CLIENTS],int client_sockets[], struct sockaddr_in client_address){
+        message_id++;
+        ref_id[0] = (uint8_t)(message_id & 0xFF);
+        ref_id[1] = (uint8_t)((message_id >> 8) & 0xFF);
+        memcpy(buffer + 1, &message_id,sizeof(u_int16_t));
+
+
+        int name_len = strlen(buffer + 3) + 1; 
+        int message_len = strlen(buffer + 3 + name_len) + 1; 
+        int length = 3 + name_len + message_len;  
+  
+        for (int j = 0; j < MAX_CLIENTS; j++) { //Sending messages from one client to others
+            // int dest_socket = client_sockets[j];
+            socklen_t len = sizeof(user[j].address);
+            int dest_socket = client_sockets[j];
+            
+            if (user[j].address.sin_port != client_address.sin_port) {
+                // printf("neco posilam\n");
+                sendto(dest_socket, buffer, length, 0, (struct sockaddr *)&user[j].address, len);
+            }
+            
+        }
+}
+
 
 void handle_udp_packet(int udp_socket,int client_sockets[],struct sockaddr_in client_address,struct Client user[]) {
     // Receive and process UDP packet
@@ -65,51 +135,32 @@ void handle_udp_packet(int udp_socket,int client_sockets[],struct sockaddr_in cl
             return;
         }
     }
-    // Process UDP packet
-    // Example: printf("Received UDP packet: %s\n", buffer)
-    if(buffer[0] == 0x02) { // Check if it's an AUTH message
-        // Parse the message to extract Username, DisplayName, and Secret
+    
+    if(buffer[0] == 0x02) { // AUTH
+
+        //   1 byte       2 bytes
+        // +--------+--------+--------+-----~~-----+---+-------~~------+---+----~~----+---+
+        // |  0x02  |    MessageID    |  Username  | 0 |  DisplayName  | 0 |  Secret  | 0 |
+        // +--------+--------+--------+-----~~-----+---+-------~~------+---+----~~----+---+
+        char *username = buffer + 3;
+        char *display_name = buffer + strlen(username) + 1 + 3;
     
         printf("RECV %s:%d | AUTH\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
 
-        uint16_t messageID = *(uint16_t*)(buffer + 1);
-        char *username = buffer + 3;
-        char *display_name_start = strchr(username, '\0') + 1;
-        char *display_name_end = strchr(display_name_start, '\0');
-        char *display_name = strndup(display_name_start, display_name_end - display_name_start);
+        confirm(buffer,udp_socket,client_address);
 
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (user[i].socket_sd == 0) {
                 user[i].socket_sd = udp_socket;
                 user[i].display_name = display_name;
-
+                user[i].address = client_address;
                 break;
             }
         }
-
-        memset(reply_buffer, 0, BUFFER_SIZE); // Clear the buffer
-
-        // Fill in the REPLY message fields
-        reply_buffer[0] = 0x01; // Message type (REPLY)
-        uint16_t message_id = 1234; // Example MessageID value, replace with the actual value
-        memcpy(reply_buffer + 1, &message_id, sizeof(uint16_t)); // Copy the MessageID to the buffer
-        reply_buffer[3] = 1; // Result (1 for success)
-        uint16_t ref_message_id = 5678; // TODO zmenit
-        memcpy(reply_buffer + 4, &ref_message_id, sizeof(uint16_t)); // Copy the Ref_MessageID to the buffer
-
-        // Set the MessageContents field (replace "Success" with the actual message content)
-        char* message_content = "Success";
-        memcpy(reply_buffer + 6, message_content, strlen(message_content)); // Copy the message content to the buffer
-
-        // Append the null terminator at the end of the MessageContents
-        reply_buffer[6 + strlen(message_content)] = '\0';
-
-        // Calculate the length of the message
-        size_t reply_length = strlen(reply_buffer) + 1; // Include the null terminator
-
-        // Send the REPLY message to the client using sendto
-        sendto(udp_socket, reply_buffer, reply_length, 0, (struct sockaddr *)&client_address, addr_len);
-
+        
+        memset(reply_buffer, 0, BUFFER_SIZE); 
+    
+        udp_auth(udp_socket,user,client_sockets,client_address);
 
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (client_sockets[i] == 0) {
@@ -119,15 +170,40 @@ void handle_udp_packet(int udp_socket,int client_sockets[],struct sockaddr_in cl
             }
         }
 
-    }
-    // else if(buffer[0] == 0x04){
-    //     // printf("zprava: %s\n",buffer);
+    }else if(buffer[0] == 0x04){ // MSG
+                            
+        //   1 byte       2 bytes
+        // +--------+--------+--------+-------~~------+---+--------~~---------+---+
+        // |  0x04  |    MessageID    |  DisplayName  | 0 |  MessageContents  | 0 |
+
+        // memset(buffer, 0, BUFFER_SIZE); 
+    
+        confirm(buffer,udp_socket,client_address);
+
+        udp_message(user,client_sockets,client_address);
+
         
-    //     size_t reply_length = strlen(buffer) + 20; // Include the null terminator
-    //     // for (int i = 0; i < MAX_CLIENTS; i++) {
-    //         sendto(udp_socket, buffer, reply_length, 0, (struct sockaddr *)&client_address, addr_len);
-    //     // }
-    // }
+        memset(buffer, 0, BUFFER_SIZE);
+        // }
+    }else if(buffer[0] == (char)0xFF){    
+        uint16_t ref_messageID = *(uint16_t*)(buffer + 1);
+        uint8_t ref_id[3];
+        ref_id[0] = (uint8_t)(ref_messageID & 0xFF);
+        ref_id[1] = (uint8_t)((ref_messageID >> 8) & 0xFF);
+
+        memset(reply_buffer, 0, BUFFER_SIZE); 
+
+        reply_buffer[0] = 0x00;
+        memcpy(reply_buffer + 1, &ref_messageID,sizeof(u_int16_t));
+        sendto(udp_socket, reply_buffer, 3, 0, (struct sockaddr *)&client_address, addr_len);
+        
+        memset(reply_buffer, 0, BUFFER_SIZE); 
+
+        // go = false;
+    }
+    else{
+        printf("jina message\n");
+    }
 }
 
 
@@ -229,9 +305,17 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
         }
         /* ---------- ACCEPT ---------- */
 
-        if (FD_ISSET(udp_socket, &readfds) && go) {
+        // if (FD_ISSET(udp_socket, &readfds) && go) {
+        //     printf("UDPSOCKET before: %d\n",udp_socket);
+        //     handle_udp_packet(udp_socket,client_sockets,client_address,user);
+        //     printf("UDPSOCKET after: %d\n",udp_socket);
+        //     go = false;
+        // }
+        if (FD_ISSET(udp_socket, &readfds)) {
             handle_udp_packet(udp_socket,client_sockets,client_address,user);
-            go = false;
+            if(!go){
+                break;
+            }
         }
         /* ---------- COMM LOOP ---------- */
         // Else it's some IO operation on some other socket
@@ -245,49 +329,7 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
     
             if (FD_ISSET(sd, &readfds)) {
                     if(sd == udp_socket) {
-                        // handle_udp_packet(udp_socket,client_sockets,client_address,user);
-                        ssize_t bytes_rx = recvfrom(sd, buffer, BUFFER_SIZE, 0, (struct sockaddr *)&client_address, &client_address_size);
-                        if (bytes_rx < 0) {
-                            if (errno == EWOULDBLOCK || errno == EAGAIN) {
-                                // No data available
-                                printf("zadne data\n");
-                                continue;
-                            } else {
-                                perror("recvfrom");
-                                return;
-                            }
-                        }
-                        if(buffer[0] == 0x04){
-                            
-                            //   1 byte       2 bytes
-                            // +--------+--------+--------+-------~~------+---+--------~~---------+---+
-                            // |  0x04  |    MessageID    |  DisplayName  | 0 |  MessageContents  | 0 |
-
-                            // memset(buffer, 0, BUFFER_SIZE); 
-                            int name_len = strlen(buffer + 3) + 1;
-                            printf("namelen: %d\n",name_len);
-                            
-                            int message_len = strlen(buffer + name_len + 3) + 1;
-                            printf("message_len: %d\n",message_len);
-
-                            int len = name_len + message_len + 3;
-                            printf("totallen: %d\n",len);
-
-
-                            // // Set the MessageContents field (replace "Success" with the actual message content)
-                            // char* message_content = "Success";
-                            // memcpy(reply_buffer + 6, message_content, strlen(message_content)); // Copy the message content to the buffer
-                            // printf("jmeno chabra %s\n",user[i].display_name );
-                            // printf("zpravachabra : %s\n",buffer + 20);
-                            // }
-                            // memset(buffer, 0, BUFFER_SIZE);
-                            // for (int i = 0; i < MAX_CLIENTS; i++) {
-                            sendto(sd, buffer, len, 0, (struct sockaddr *)&client_address, client_address_size);
-                            memset(buffer, 0, BUFFER_SIZE);
-                            // }
-                        }else{
-                            printf("jina message\n");
-                        }
+                       
                     }else{
                     // Check if it was for closing, and also read the incoming message
                     getpeername(sd, (struct sockaddr *) &client_address, &client_address_size); //TODO mozna pouzit neco jineho
@@ -427,6 +469,29 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
             }
         }
     }
+
+
+    // for (int j = 0; j < MAX_CLIENTS; j++) { //Sending messages from one client to others
+    //         // int dest_socket = client_sockets[j];
+    //         socklen_t len = sizeof(user[j].address);
+    //         int dest_socket = client_sockets[j];
+
+    //         uint16_t ref_messageID = 2;
+    //         uint8_t ref_id[3];
+    //         ref_id[0] = (uint8_t)(ref_messageID & 0xFF);
+    //         ref_id[1] = (uint8_t)((ref_messageID >> 8) & 0xFF);
+
+    //         memset(reply_buffer, 0, BUFFER_SIZE); 
+
+    //         reply_buffer[0] = 0xFF;
+    //         memcpy(reply_buffer + 1, &ref_messageID,sizeof(u_int16_t));
+            
+    //         if (user[j].address.sin_port != client_address.sin_port) {
+    //             // printf("neco posilam\n");
+    //             sendto(dest_socket, reply_buffer, 3, 0, (struct sockaddr *)&user[j].address, len);
+    //         }
+            
+    //     }
     /* ---------- COMM LOOP ---------- */
     close(udp_socket);
 
