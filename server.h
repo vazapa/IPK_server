@@ -21,6 +21,7 @@ struct Client {
     char *protocol;
     struct sockaddr_in address;
     bool authenticated;
+    int id;
 };
 
 void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret);

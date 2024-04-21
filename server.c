@@ -6,12 +6,18 @@
 /* TODO
 - asi kontrolovani spravnosti loginu atd
 - server shall never use the Username of the authenticated user as their DisplayName
-- komunikace mezi udp a tcp
+- argumenty
+- An example of a valid channel join failure is when the server is unable to internally create the corresponding channel or add the connection user to that channel.
+- Assuming a single connection per unique user account (username) at the most.
+- co nejmin global variables, at to muzu rozdelit do souboru
+- otestovat na nixu
 ---- TCP ----
-- vyresit segfault kdyz da client ctrl+c
+- vyresit stream
 ---- UDP ----
+- dynamicky port!!! -> Call sendto without calling bind first, the socket will be bound automatically (to a free port).
+
 - timeout a retries
-- join command
+
 - err
 */
 
@@ -23,6 +29,9 @@ bool go = true;
 uint16_t message_id = 0;
 uint8_t ref_id[3];
 uint8_t server_id[3];
+int id = 0;
+int test;
+
 
 void intHandler(int sig) {
     keepRunning = 0;
@@ -105,6 +114,9 @@ void udp_auth(int udp_socket,struct Client user[MAX_CLIENTS],int client_sockets[
 
 void udp_message(struct Client user[MAX_CLIENTS],int client_sockets[], struct sockaddr_in client_address){
         
+
+        // client id, potom if s memcpy jestli je na stejnem miste v pameti tak priradit ID a pak pri porovnani to tam dosadit na trvdo
+
         //socklen_t len = sizeof(user->address);
         // getpeername(client_sockets, (struct sockaddr *) &client_address, &len); //TODO mozna pouzit neco jineho
         printf("RECV %s:%d | MSG\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
@@ -114,28 +126,33 @@ void udp_message(struct Client user[MAX_CLIENTS],int client_sockets[], struct so
         ref_id[1] = (uint8_t)((message_id >> 8) & 0xFF);
         memcpy(buffer + 1, &message_id,sizeof(u_int16_t));
 
-
+        
         int name_len = strlen(buffer + 3) + 1; 
         int message_len = strlen(buffer + 3 + name_len) + 1; 
         int length = 3 + name_len + message_len;  
-  
+
+        char *disp_tmp = buffer + 3;
+         for (int i = 0; i < MAX_CLIENTS; i++) {
+                    // memcmp(&user[j].address.sin_addr, &client_address.sin_addr, sizeof(struct in_addr)) != 0 && 
+                    if( user[i].display_name != NULL && strcmp(user[i].display_name,disp_tmp) == 0){
+                        id = i;
+                    }
+                }
         
         for (int j = 0; j < MAX_CLIENTS; j++) { //Sending messages from one client to others
-        // printf("%d client name: %s and channel name: %s\n",j,user[j].display_name,user[j].channel_name);
-            // int dest_socket = client_sockets[j];
-            // if (strcmp(user->channel_name, user[j].channel_name) == 0) {
-                bool jo = true;
+
                 socklen_t len = sizeof(user[j].address);
                 int dest_socket = client_sockets[j];
                 
-                if(user[j].protocol != NULL && user[j].authenticated){
+                if(user[j].protocol != NULL && user[j].channel_name != NULL  && user[id].channel_name != NULL && strcmp(user[j].channel_name,user[id].channel_name) == 0){
+                    
                 
                      if (strcmp(user[j].protocol, "udp") == 0) {
                         if (user[j].address.sin_port != client_address.sin_port){ //udp
                 
                             sendto(dest_socket, buffer, length, 0, (struct sockaddr *)&user[j].address, len);
                         }
-                     }else if(strcmp(user[j].protocol, "tcp") == 0){
+                     }else if(user[j].address.sin_port != client_address.sin_port && strcmp(user[j].protocol, "tcp") == 0){
                 
                             memset(reply_buffer, 0, BUFFER_SIZE); 
 
@@ -184,24 +201,29 @@ void handle_udp_packet(int udp_socket,int client_sockets[],struct sockaddr_in cl
         // |  0x02  |    MessageID    |  Username  | 0 |  DisplayName  | 0 |  Secret  | 0 |
         // +--------+--------+--------+-----~~-----+---+-------~~------+---+----~~----+---+
         char *username = buffer + 3;
-        char *display_name = buffer + strlen(username) + 1 + 1;
+        char *display_name = buffer + strlen(username) + 1 + 3;
     
         printf("RECV %s:%d | AUTH\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
 
-        confirm(buffer,udp_socket,client_address);
 
         for (int i = 0; i < MAX_CLIENTS; i++) {
             if (user[i].socket_sd == 0) {
                 user[i].socket_sd = udp_socket;
-                user[i].display_name = display_name;
+                user[i].display_name = strdup(display_name);
+                // user[i].display_name = display_name;
+                printf("display: %s\n",user[i].display_name);
                 user[i].address = client_address;
                 user[i].channel_name = "general";
                 user[i].protocol = "udp";
                 user[i].authenticated = true;
+                user[i].address.sin_addr = client_address.sin_addr;
+                user[i].id = id;
+                id++;
                 //printf("AUTHHH: %d client name: %s and channel name: %s\n",i,user[i].display_name,user[i].channel_name);
                 break;
             }
         }
+        confirm(buffer,udp_socket,client_address);
 
         //printf("auth channel: %s, display name: %s\n",user->channel_name,user->display_name);
         
@@ -251,16 +273,28 @@ void handle_udp_packet(int udp_socket,int client_sockets[],struct sockaddr_in cl
         memset(reply_buffer, 0, BUFFER_SIZE); 
 
         // go = false;
-    }else if(buffer[0] == 0x03 ){
+    }else if(buffer[0] == 0x03 ){ //join
         //   1 byte       2 bytes
         // +--------+--------+--------+-----~~-----+---+-------~~------+---+
         // |  0x03  |    MessageID    |  ChannelID | 0 |  DisplayName  | 0 |
         // +--------+--------+--------+-----~~-----+---+-------~~------+---+
 
+
+        char *channel_name = buffer + 3;
+        char *display = buffer + 3 + strlen(channel_name) + 1;
+                            
+
+        
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+
+            if (user[i].display_name != NULL && strcmp(user[i].display_name, display) == 0) {
+                user[i].channel_name = strdup(channel_name);
+
+                break;
+            }
+        }
         confirm(buffer,udp_socket,client_address);
 
-        user->channel_name = buffer + 3;
-        user->display_name = buffer + 3 + strlen(user->channel_name) + 1;
         // printf("join channel: %s, display name: %s\n",user->channel_name,user->display_name);
 
         memset(buffer, 0, BUFFER_SIZE); 
@@ -424,6 +458,9 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                             user[i].authenticated = true;
                             user[i].socket_sd = sd;
                             user[i].protocol = "tcp";
+                            user[i].address.sin_addr = client_address.sin_addr;
+                            user[i].id = id;
+                            id++;
                             printf("RECV %s:%d | AUTH\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
                             
                             /* TODO UDELAT JEDNOSUSSI*/
@@ -471,14 +508,14 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                             snprintf(buffer, BUFFER_SIZE, "REPLY OK IS Sucesful join\r\n");//TODO tweak na REPLY!
                             send(sd, buffer, strlen(buffer), 0); 
                             printf("SENT %s:%d | REPLY\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
-                            for (int j = 0; j < MAX_CLIENTS; j++) {
-                                    if (client_sockets[j] > 0 && client_sockets[j] != sd && strcmp(user[i].channel_name, user[j].channel_name) == 0) {
-                                        // Send notification to other clients
-                                        memset(buffer, 0, BUFFER_SIZE);
-                                        snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s joined the %s\r\n", user[i].display_name,user[i].channel_name);
-                                        send(client_sockets[j], buffer, strlen(buffer), 0);
-                                    }
-                            }
+                            // for (int j = 0; j < MAX_CLIENTS; j++) {
+                            //         if (client_sockets[j] > 0 && client_sockets[j] != sd && strcmp(user[i].channel_name, user[j].channel_name) == 0) {
+                            //             // Send notification to other clients
+                            //             memset(buffer, 0, BUFFER_SIZE);
+                            //             snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s joined the %s\r\n", user[i].display_name,user[i].channel_name);
+                            //             send(client_sockets[j], buffer, strlen(buffer), 0);
+                            //         }
+                            // }
 
                         }else if(strncmp(buffer,"MSG",3) == 0){
                             //MSG FROM displej IS zprava
@@ -519,14 +556,14 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                                     int dest_socket = client_sockets[j];
                                 
                                     // if (dest_socket != sd && dest_socket > 0 && strcmp(user[i].channel_name, user[j].channel_name) == 0 && client_sockets[j] != udp_socket) {
-                                    if (dest_socket != sd && dest_socket > 0  && client_sockets[j] != udp_socket) { // TODO prozatim bez joinu
+                                    if (dest_socket != sd && dest_socket > 0  && client_sockets[j] != udp_socket && strcmp(user[i].channel_name,user[j].channel_name) == 0) { // TODO prozatim bez joinu
                                         
                                         // printf("tady nemam byt\n");
                                         send(dest_socket, buffer, strlen(buffer), 0);
                                 
                                     }
-                                    if(udp_socket != 0 && user[i].display_name != NULL && user[j].display_name != NULL && MessageContent != NULL  ) { 
-
+                                    if(udp_socket != 0 && user[i].display_name != NULL && user[j].display_name != NULL && MessageContent != NULL  && strcmp(user[i].channel_name,user[j].channel_name) == 0  ) { 
+                                            printf("jsem tady");
                                         MessageContent[strcspn(MessageContent, "\r\n")] = 0; 
                                         
                                         memset(reply_buffer, 0, BUFFER_SIZE);
@@ -586,13 +623,10 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                                 close(sd);
                                 close(client_sockets[i]);
 
-                                free(user[i].channel_name);
+                                // free(user[i].channel_name);
                                 free(user[i].display_name);
                                 
                                 client_sockets[i] = 0;
-                        }else if(buffer[0] == 0x04){
-                            printf("neco prilito\n");
-
                         }
                         memset(buffer, 0, BUFFER_SIZE);
                         
@@ -604,7 +638,7 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
 
 
     /* ---------- COMM LOOP ---------- */
-    close(udp_socket);
+    // close(udp_socket);
 
     /* ---------- LOOP END ---------- */
     for (int i = 0; i < MAX_CLIENTS; i++) {
