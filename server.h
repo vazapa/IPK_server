@@ -1,3 +1,6 @@
+#ifndef SERVER_H
+#define SERVER_H
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +13,8 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <stdbool.h>
+
+
 
 #define BUFFER_SIZE 2048
 #define MAX_CLIENTS 5
@@ -26,8 +31,6 @@ struct Client {
 
 void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret);
 struct sockaddr_in adress_fill(uint16_t port);
-void handle_udp_packet(int udp_socket,int client_sockets[],struct sockaddr_in client_address,struct Client user[]);
 void tcp_accept(int tcp_socket,int client_sockets[]);
-void confirm(char buffer[BUFFER_SIZE],int udp_socket,struct sockaddr_in client_address);
-void udp_auth(int udp_socket, struct sockaddr_in client_address);
-void udp_message(struct Client user[MAX_CLIENTS],int client_sockets[], struct sockaddr_in client_address);
+
+#endif
