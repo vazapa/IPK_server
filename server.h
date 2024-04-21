@@ -12,7 +12,7 @@
 #include <stdbool.h>
 
 #define BUFFER_SIZE 2048
-#define MAX_CLIENTS 3
+#define MAX_CLIENTS 5
 
 struct Client {
     int socket_sd;
@@ -20,6 +20,7 @@ struct Client {
     char *channel_name;
     char *protocol;
     struct sockaddr_in address;
+    bool authenticated;
 };
 
 void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret);

@@ -1,6 +1,6 @@
 #include "server.h"
 #define BUFFER_SIZE 2048
-#define MAX_CLIENTS 3
+#define MAX_CLIENTS 5
 #define MAX_CHANNELS 3
 
 /* TODO
@@ -120,14 +120,45 @@ void udp_message(struct Client user[MAX_CLIENTS],int client_sockets[], struct so
         // printf("%d client name: %s and channel name: %s\n",j,user[j].display_name,user[j].channel_name);
             // int dest_socket = client_sockets[j];
             // if (strcmp(user->channel_name, user[j].channel_name) == 0) {
+                bool jo = true;
                 socklen_t len = sizeof(user[j].address);
                 int dest_socket = client_sockets[j];
-                
-                if(user[j].display_name != NULL){
-                    if (user[j].address.sin_port != client_address.sin_port ){
-                        // printf("neco posilam\n");
-                        sendto(dest_socket, buffer, length, 0, (struct sockaddr *)&user[j].address, len);
-                    }
+                printf("protokoly: %s\n",user[j].protocol);
+                if(user[j].protocol != NULL && user[j].authenticated){
+                    printf("jsem tady 1 \n");
+                     if (strcmp(user[j].protocol, "udp") == 0) {
+                        if (user[j].address.sin_port != client_address.sin_port){ //udp
+                            printf("jou 4\n");
+                            sendto(dest_socket, buffer, length, 0, (struct sockaddr *)&user[j].address, len);
+                        }
+                     }else if(strcmp(user[j].protocol, "tcp") == 0){
+                            printf("jsem tady 2 \n");
+                        // if (user[j].address.sin_port != client_address.sin_port){
+                            //   1 byte       2 bytes
+                            // +--------+--------+--------+-------~~------+---+--------~~---------+---+
+                            // |  0x04  |    MessageID    |  DisplayName  | 0 |  MessageContents  | 0 |
+                            // +--------+--------+--------+-------~~------+---+--------~~---------+---+
+                            // MSG FROM display_name IS Hello everybody!
+
+                            //printf("neco posilam\n");
+                            memset(reply_buffer, 0, BUFFER_SIZE); 
+
+                            char *display_name = buffer + 3;
+                            MessageContent = buffer + 3+ strlen(display_name) + 1;
+
+                            int msg_len = strlen(display_name) + 1 + strlen(MessageContent) + 1 + 3;
+                            printf("displej: %s, content: %s\n",display_name,MessageContent);
+                            
+                            
+                            snprintf(reply_buffer,BUFFER_SIZE,"MSG FROM %s IS %s\r\n",display_name,MessageContent);
+                            printf("%s\n",reply_buffer);
+                            send(dest_socket, reply_buffer, strlen(reply_buffer), 0); //tcp
+
+                            memset(reply_buffer, 0, BUFFER_SIZE); 
+                            }
+                        // }
+                    
+                    
                 }
             }
 
@@ -170,6 +201,8 @@ void handle_udp_packet(int udp_socket,int client_sockets[],struct sockaddr_in cl
                 user[i].display_name = display_name;
                 user[i].address = client_address;
                 user[i].channel_name = "general";
+                user[i].protocol = "udp";
+                user[i].authenticated = true;
                 //printf("AUTHHH: %d client name: %s and channel name: %s\n",i,user[i].display_name,user[i].channel_name);
                 break;
             }
@@ -336,7 +369,9 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
         /* ---------- ACCEPT ---------- */
         // If something happened on the master socket, then it's an incoming connection
         if (FD_ISSET(welcome_socket, &readfds)) {
+            
             tcp_accept(welcome_socket,client_sockets,user);
+         
         }
         /* ---------- ACCEPT ---------- */
 
@@ -391,8 +426,8 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                         
                         if(strncmp(buffer,"AUTH",4) == 0){ // TODO checknout spravnost
 
-                        
-                        
+                            user[i].authenticated = true;
+                            user[i].socket_sd = sd;
                             user[i].protocol = "tcp";
                             printf("RECV %s:%d | AUTH\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
                             
@@ -419,14 +454,14 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
 
                             user[i].channel_name = "general";
 
-                            for (int j = 0; j < MAX_CLIENTS; j++) {
-                                    if (client_sockets[j] > 0 && client_sockets[j] != sd && strcmp(user[i].channel_name, user[j].channel_name) == 0) {
-                                        // Send notification to other clients
-                                        memset(buffer, 0, BUFFER_SIZE);
-                                        snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s joined the %s\r\n", user[i].display_name,user[i].channel_name);
-                                        send(client_sockets[j], buffer, strlen(buffer), 0);
-                                    }
-                            }
+                            // for (int j = 0; j < MAX_CLIENTS; j++) { // TODO BUGUJE
+                            //         if (client_sockets[j] > 0 && client_sockets[j] != sd && strcmp(user[i].channel_name, user[j].channel_name) == 0) {
+                            //             // Send notification to other clients
+                            //             memset(buffer, 0, BUFFER_SIZE);
+                            //             snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s joined the %s\r\n", user[i].display_name,user[i].channel_name);
+                            //             send(client_sockets[j], buffer, strlen(buffer), 0);
+                            //         }
+                            // }
                             
                             continue;
                         }else if(strncmp(buffer,"JOIN",4) == 0){ //TODO handle reply
@@ -489,19 +524,19 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                                     // if (dest_socket != sd && dest_socket > 0 && strcmp(user[i].channel_name, user[j].channel_name) == 0 && client_sockets[j] != udp_socket) {
                                     if (dest_socket != sd && dest_socket > 0  && client_sockets[j] != udp_socket) { // TODO prozatim bez joinu
                                         
-                                        printf("tady nemam byt\n");
+                                        // printf("tady nemam byt\n");
                                         send(dest_socket, buffer, strlen(buffer), 0);
                                 
                                     }
-                                    if(udp_socket != 0){ 
+                                    if(udp_socket != 0 && user[i].display_name != NULL && user[j].display_name != NULL && MessageContent != NULL  ) { 
 
-                                    // printf("posilam neco do udp ig\n");
-                                    //     //   1 byte       2 bytes
-                                    //     // +--------+--------+--------+-------~~------+---+--------~~---------+---+
-                                    //     // |  0x04  |    MessageID    |  DisplayName  | 0 |  MessageContents  | 0 |
-                                    //     // +--------+--------+--------+-------~~------+---+--------~~---------+---+
+                                    //printf("posilam neco do udp ig\n");
+                                        //   1 byte       2 bytes
+                                        // +--------+--------+--------+-------~~------+---+--------~~---------+---+
+                                        // |  0x04  |    MessageID    |  DisplayName  | 0 |  MessageContents  | 0 |
+                                        // +--------+--------+--------+-------~~------+---+--------~~---------+---+
 
-                                    //     // MSG FROM TCP_man IS Hello everybody!
+                                        // MSG FROM TCP_man IS Hello everybody!
                                 
 
                                         
@@ -522,16 +557,16 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
 
                                         memcpy(reply_buffer + 3 + strlen(user[i].display_name) + 1, MessageContent,sizeof(char*));
 
-                                        // int length = 3 + strlen(user[i].display_name) + 1;
+                                        
                                         int length = 3 + strlen(user[i].display_name) + 1 + strlen(MessageContent) + 1;
-                                        // if (user[i].address.sin_port != user[j].address.sin_port ){
 
                                             
+                                        
                                             
                                         sendto(udp_socket, reply_buffer, length, 0, (struct sockaddr *)&user[j].address, address_size);
                                         
 
-                                        // }
+                                        
                                     } 
                                     
                                 }
