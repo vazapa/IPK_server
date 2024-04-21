@@ -21,19 +21,15 @@
 - err
 */
 
-char *MessageContent;
+
 char buffer[BUFFER_SIZE];
 char reply_buffer[BUFFER_SIZE];
 volatile sig_atomic_t keepRunning = 1;
-bool go = true; 
 uint16_t message_id = 0;
+
 uint8_t ref_id[3];
-uint8_t server_id[3];
-int id = 0;
-int test;
 
-
-void intHandler(int sig) {
+void intHandler() {
     keepRunning = 0;
 }
 
@@ -48,7 +44,7 @@ struct sockaddr_in adress_fill(uint16_t port){
     return server_address;
 }
 
-void tcp_accept(int tcp_socket,int client_sockets[],struct Client user[]){
+void tcp_accept(int tcp_socket,int client_sockets[]){
     struct sockaddr_in client_address;
     socklen_t client_address_size = sizeof(client_address);
     int new_socket = accept(tcp_socket, (struct sockaddr *) &client_address, &client_address_size);
@@ -76,7 +72,7 @@ void confirm(char buffer[BUFFER_SIZE],int udp_socket,struct sockaddr_in client_a
         memset(reply_buffer, 0, BUFFER_SIZE); 
 
         reply_buffer[0] = 0x00;
-        memcpy(reply_buffer + 1, &ref_messageID,sizeof(u_int16_t));
+        memcpy(reply_buffer + 1, &ref_id,sizeof(u_int16_t));
         sendto(udp_socket, reply_buffer, 3, 0, (struct sockaddr *)&client_address, addr_len);
 
         printf("SENT %s:%d | CONFIRM\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
@@ -84,11 +80,12 @@ void confirm(char buffer[BUFFER_SIZE],int udp_socket,struct sockaddr_in client_a
         memset(reply_buffer, 0, BUFFER_SIZE); 
 }
 
-void udp_auth(int udp_socket,struct Client user[MAX_CLIENTS],int client_sockets[], struct sockaddr_in client_address){
+void udp_auth(int udp_socket, struct sockaddr_in client_address){
 
         socklen_t addr_len = sizeof(client_address);        
         reply_buffer[0] = 0x01; // Message type (REPLY)
         message_id++; 
+        uint8_t server_id[3];
         server_id[0] = (uint8_t)(message_id & 0xFF);
         server_id[1] = (uint8_t)((message_id >> 8) & 0xFF);
 
@@ -115,7 +112,7 @@ void udp_auth(int udp_socket,struct Client user[MAX_CLIENTS],int client_sockets[
 void udp_message(struct Client user[MAX_CLIENTS],int client_sockets[], struct sockaddr_in client_address){
         
 
-        // client id, potom if s memcpy jestli je na stejnem miste v pameti tak priradit ID a pak pri porovnani to tam dosadit na trvdo
+        
 
         //socklen_t len = sizeof(user->address);
         // getpeername(client_sockets, (struct sockaddr *) &client_address, &len); //TODO mozna pouzit neco jineho
@@ -132,6 +129,8 @@ void udp_message(struct Client user[MAX_CLIENTS],int client_sockets[], struct so
         int length = 3 + name_len + message_len;  
 
         char *disp_tmp = buffer + 3;
+
+        int id;
          for (int i = 0; i < MAX_CLIENTS; i++) {
                     // memcmp(&user[j].address.sin_addr, &client_address.sin_addr, sizeof(struct in_addr)) != 0 && 
                     if( user[i].display_name != NULL && strcmp(user[i].display_name,disp_tmp) == 0){
@@ -157,9 +156,9 @@ void udp_message(struct Client user[MAX_CLIENTS],int client_sockets[], struct so
                             memset(reply_buffer, 0, BUFFER_SIZE); 
 
                             char *display_name = buffer + 3;
-                            MessageContent = buffer + 3+ strlen(display_name) + 1;
+                            char *MessageContent = buffer + 3+ strlen(display_name) + 1;
 
-                            int msg_len = strlen(display_name) + 1 + strlen(MessageContent) + 1 + 3;
+                            
                             
                 
                             snprintf(reply_buffer,BUFFER_SIZE,"MSG FROM %s IS %s\r\n",display_name,MessageContent);
@@ -217,8 +216,7 @@ void handle_udp_packet(int udp_socket,int client_sockets[],struct sockaddr_in cl
                 user[i].protocol = "udp";
                 user[i].authenticated = true;
                 user[i].address.sin_addr = client_address.sin_addr;
-                user[i].id = id;
-                id++;
+                
                 //printf("AUTHHH: %d client name: %s and channel name: %s\n",i,user[i].display_name,user[i].channel_name);
                 break;
             }
@@ -229,7 +227,7 @@ void handle_udp_packet(int udp_socket,int client_sockets[],struct sockaddr_in cl
         
         memset(reply_buffer, 0, BUFFER_SIZE); 
     
-        udp_auth(udp_socket,user,client_sockets,client_address);
+        udp_auth(udp_socket,client_address);
 
         memset(buffer, 0, BUFFER_SIZE); 
         memset(reply_buffer, 0, BUFFER_SIZE); 
@@ -361,7 +359,7 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
     int flags2 = fcntl(udp_socket, F_GETFL, 0);
     fcntl(udp_socket, F_SETFL, flags2 | O_NONBLOCK);
 
-    int debug = 0;
+    
     /* ------- SERVER/SOCKET INFO -------*/
     
     
@@ -399,7 +397,7 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
         // If something happened on the master socket, then it's an incoming connection
         if (FD_ISSET(welcome_socket, &readfds)) {
             
-            tcp_accept(welcome_socket,client_sockets,user);
+            tcp_accept(welcome_socket,client_sockets);
          
         }
         /* ---------- ACCEPT ---------- */
@@ -415,9 +413,7 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
         
         if (FD_ISSET(udp_socket, &readfds)) {
             handle_udp_packet(udp_socket,client_sockets,client_address,user);
-            if(!go){
-                break;
-            }
+            
         }
         
         /* ---------- COMM LOOP ---------- */
@@ -459,8 +455,8 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                             user[i].socket_sd = sd;
                             user[i].protocol = "tcp";
                             user[i].address.sin_addr = client_address.sin_addr;
-                            user[i].id = id;
-                            id++;
+                            
+                            
                             printf("RECV %s:%d | AUTH\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
                             
                             /* TODO UDELAT JEDNOSUSSI*/
@@ -529,7 +525,7 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
 
                             
 
-                            MessageContent = strstr(buffer_copy, "IS"); //strcasestr
+                            char *MessageContent = strstr(buffer_copy, "IS"); //strcasestr
                             
                             if (MessageContent != NULL) {
                                 MessageContent += 3;
@@ -570,6 +566,7 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                                         reply_buffer[0] = 0x04;
 
                                         message_id++;
+                                        uint8_t server_id[3];
                                         server_id[0] = (uint8_t)(message_id & 0xFF);
                                         server_id[1] = (uint8_t)((message_id >> 8) & 0xFF);
                                         memcpy(reply_buffer + 1, &server_id,sizeof(u_int16_t));
