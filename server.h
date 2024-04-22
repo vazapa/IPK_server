@@ -30,7 +30,7 @@ struct Client {
 };
 
 void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret);
-struct sockaddr_in adress_fill(uint16_t port);
+struct sockaddr_in adress_fill(char *ip_addr,uint16_t port);
 
 
 #endif

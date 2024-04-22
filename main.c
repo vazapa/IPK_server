@@ -12,13 +12,15 @@
 
 
 int main(int argc,char *argv[]){
-     
-    char ip_addr[]="0.0.0.0";
+    char ip_addr[INET_ADDRSTRLEN]; 
+    strcpy(ip_addr, "0.0.0.0"); 
+
+
     uint16_t port = 4567;
     uint16_t udp_timeout = 250;
     uint8_t udp_ret = 3;
 
-    if (strcmp(argv[1], "-h") == 0) {
+    if (argv[1] != NULL &&  strcmp(argv[1], "-h") == 0) {
         printf("Usage: %s -l [IP address] -p [port] -d [UDP confirmation timeout] -r [Max UDP retransmissions]\n", argv[0]);
         exit(0);
     }

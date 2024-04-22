@@ -9,13 +9,10 @@
 #define MAX_CHANNELS 3
 
 /* TODO
-- asi kontrolovani spravnosti loginu atd
 - server shall never use the Username of the authenticated user as their DisplayName
-- argumenty
 - An example of a valid channel join failure is when the server is unable to internally create the corresponding channel or add the connection user to that channel.
 - Assuming a single connection per unique user account (username) at the most.
 - jdou posilat zpravy i kdyz uzivatel neni authnuty
-- otestovat na nixu
 ---- TCP ----
 - vyresit stream
 ---- UDP ----
@@ -34,19 +31,23 @@ void intHandler() {
     keepRunning = 0;
 }
 
-struct sockaddr_in adress_fill(uint16_t port){
+struct sockaddr_in adress_fill(char *ip_addr,uint16_t port){
     struct sockaddr_in server_address; 
 
     memset(&server_address, 0, sizeof(server_address));
     server_address.sin_family = AF_INET; 
-    server_address.sin_addr.s_addr = htonl(INADDR_ANY); 
+    int a = inet_pton(AF_INET, ip_addr, &server_address.sin_addr);
+    if (a <= 0){
+        fprintf(stderr,"Error with inet_pton");
+    }
+
     server_address.sin_port = htons(port);
     
     return server_address;
 }
 
 void server(char *ip_addr,uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
-    printf("%d%d%s",udp_ret,udp_timeout,ip_addr);
+    // printf("%d%d%s",udp_ret,udp_timeout,ip_addr);
     struct Client user[MAX_CLIENTS] = {0};
     
     
@@ -56,7 +57,7 @@ void server(char *ip_addr,uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
 
     struct sockaddr_in client_address;
     socklen_t client_address_size = sizeof(client_address);
-    struct sockaddr_in server_address = adress_fill(port);
+    struct sockaddr_in server_address = adress_fill(ip_addr,port);
     struct sockaddr *address = (struct sockaddr *) &server_address; 
     int address_size = sizeof(server_address);
 
