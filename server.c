@@ -14,12 +14,14 @@
 - argumenty
 - An example of a valid channel join failure is when the server is unable to internally create the corresponding channel or add the connection user to that channel.
 - Assuming a single connection per unique user account (username) at the most.
+- jdou posilat zpravy i kdyz uzivatel neni authnuty
 - otestovat na nixu
 ---- TCP ----
 - vyresit stream
+- dodelat zpravy
 ---- UDP ----
 - dynamicky port!!! -> Call sendto without calling bind first, the socket will be bound automatically (to a free port).
-
+- dodelat zpravy
 - timeout a retries
 
 - err
@@ -171,12 +173,12 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                     
                     if(strncmp(buffer,"AUTH",4) == 0){ 
 
-                        tcp_auth(user,sd,client_address,i);
+                        tcp_auth(user,sd,client_address,i,client_sockets,udp_socket,address_size);
                         
                         
                     }else if(strncmp(buffer,"JOIN",4) == 0){ //TODO handle reply                        
                         
-                        tcp_join(user,client_address,i,sd);
+                        tcp_join(user,client_address,i,sd,client_sockets,udp_socket,address_size);
 
                     }else if(strncmp(buffer,"MSG",3) == 0){
 
