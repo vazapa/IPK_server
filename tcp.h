@@ -26,6 +26,6 @@ void tcp_auth(struct Client user[MAX_CLIENTS],int sd,struct sockaddr_in client_a
 void tcp_join(struct Client user[MAX_CLIENTS],struct sockaddr_in client_address,int i,int sd,int client_sockets[],int udp_socket,int address_size);
 void tcp_msg(struct Client user[MAX_CLIENTS],struct sockaddr_in client_address,int i,int sd,int client_sockets[], int udp_socket,int address_size);
 void tcp_err(struct Client user[MAX_CLIENTS],struct sockaddr_in client_address,int sd,int client_sockets[],int i);
-void tcp_bye(int client_sockets[],struct sockaddr_in client_address,struct Client user[MAX_CLIENTS],int i,int sd);
+void tcp_bye(int client_sockets[],struct sockaddr_in client_address,struct Client user[MAX_CLIENTS],int i,int sd,int udp_socket,int address_size);
 
 #endif

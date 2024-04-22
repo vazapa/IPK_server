@@ -18,13 +18,9 @@
 - otestovat na nixu
 ---- TCP ----
 - vyresit stream
-- dodelat zpravy
 ---- UDP ----
 - dynamicky port!!! -> Call sendto without calling bind first, the socket will be bound automatically (to a free port).
-- dodelat zpravy
 - timeout a retries
-
-- err
 */
 
 char buffer[BUFFER_SIZE];
@@ -49,8 +45,8 @@ struct sockaddr_in adress_fill(uint16_t port){
     return server_address;
 }
 
-void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
-    printf("%d%d%d%s",port,udp_ret,udp_timeout,ip_addr);
+void server(char *ip_addr,uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
+    printf("%d%d%s",udp_ret,udp_timeout,ip_addr);
     struct Client user[MAX_CLIENTS] = {0};
     
     
@@ -190,7 +186,7 @@ void server(char ip_addr[],uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
 
                     }else if(strncmp(buffer,"BYE",3) == 0){
 
-                            tcp_bye(client_sockets,client_address,user,i,sd);;
+                            tcp_bye(client_sockets,client_address,user,i,sd,udp_socket,address_size);
 
                     }
                     memset(buffer, 0, BUFFER_SIZE);

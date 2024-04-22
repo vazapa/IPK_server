@@ -122,7 +122,7 @@ void tcp_join(struct Client user[MAX_CLIENTS],struct sockaddr_in client_address,
         snprintf(MessageContent, message_length, "%s joined the %s", user[i].display_name,user[i].channel_name);
         // printf("jou: %s\n",MessageContent);
     }
-    
+
     for (int j = 0; j < MAX_CLIENTS; j++) {
             if (client_sockets[j] > 0 && client_sockets[j] != sd && strcmp(user[i].channel_name, user[j].channel_name) == 0) {
                 
@@ -241,18 +241,52 @@ void tcp_err(struct Client user[MAX_CLIENTS],struct sockaddr_in client_address,i
     client_sockets[i] = 0;
     // continue;
 }
-void tcp_bye(int client_sockets[],struct sockaddr_in client_address,struct Client user[MAX_CLIENTS],int i,int sd){
+void tcp_bye(int client_sockets[],struct sockaddr_in client_address,struct Client user[MAX_CLIENTS],int i,int sd,int udp_socket,int address_size){
     printf("RECV %s:%d | BYE\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
     // Iterate over all client sockets
+    memset(buffer, 0, BUFFER_SIZE);
+    // printf("channel jmeno: %s\n",user[i].channel_name);
+    snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s left the %s\r\n", user[i].display_name, user[i].channel_name);
+
+    char MessageContent[BUFFER_SIZE];
+    int message_length;
+    if(user[i].display_name != NULL && user[i].channel_name != NULL){
+        message_length = strlen(user[i].display_name) + strlen(user[i].channel_name) + 21 ;
+        snprintf(MessageContent, message_length, "%s left the %s", user[i].display_name,user[i].channel_name);
+        // printf("jou: %s\n",MessageContent);
+    }
+
     for (int j = 0; j < MAX_CLIENTS; j++) {
         if (client_sockets[j] > 0 && client_sockets[j] != sd && strcmp(user[i].channel_name, user[j].channel_name) == 0) {
             // Send notification to other clients
-            memset(buffer, 0, BUFFER_SIZE);
-            printf("channel jmeno: %s\n",user[i].channel_name);
-            snprintf(buffer, BUFFER_SIZE, "MSG FROM Server IS %s left the %s\r\n", user[i].display_name, user[i].channel_name);
             send(client_sockets[j], buffer, strlen(buffer), 0);
-            
         }
+        if(udp_socket != 0 && user[i].display_name != NULL && user[j].display_name != NULL  && strcmp(user[i].channel_name,user[j].channel_name) == 0  ) { 
+                    //   1 byte       2 bytes
+                    // +--------+--------+--------+-------~~------+---+--------~~---------+---+
+                    // |  0x04  |    MessageID    |  DisplayName  | 0 |  MessageContents  | 0 |
+                    // +--------+--------+--------+-------~~------+---+--------~~---------+---+
+                    // JOIN general AS TCP_man
+                char *server_name = "Server";
+                memset(reply_buffer, 0, BUFFER_SIZE);
+                reply_buffer[0] = 0x04;
+
+                message_id++;
+                uint8_t server_id[3];
+                server_id[0] = (uint8_t)(message_id & 0xFF);
+                server_id[1] = (uint8_t)((message_id >> 8) & 0xFF);
+                memcpy(reply_buffer + 1, &server_id,sizeof(u_int16_t));
+                
+                memcpy(reply_buffer + 3, server_name,sizeof(char*));
+
+                memcpy(reply_buffer + 3 + strlen(server_name) + 1, MessageContent,message_length);
+                
+                int length = 3 + strlen(server_name) + 1 + strlen(MessageContent) + 1;
+
+                sendto(udp_socket, reply_buffer, length, 0, (struct sockaddr *)&user[j].address, address_size);
+                                                        
+            } 
+        
     }
     shutdown(sd, SHUT_RDWR); 
     shutdown(client_sockets[i], SHUT_RDWR); 
