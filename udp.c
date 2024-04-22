@@ -5,8 +5,6 @@
 
 extern char buffer[BUFFER_SIZE];
 extern char reply_buffer[BUFFER_SIZE];
-
-
 extern uint8_t ref_id[3];
 
 void confirm(char buffer[BUFFER_SIZE],int udp_socket,struct sockaddr_in client_address){

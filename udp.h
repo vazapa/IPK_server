@@ -19,7 +19,7 @@
 #define BUFFER_SIZE 2048
 #define MAX_CLIENTS 5
 
-
+void handle_udp_packet(int udp_socket,int client_sockets[],struct sockaddr_in client_address,struct Client user[]);
 void confirm(char buffer[BUFFER_SIZE],int udp_socket,struct sockaddr_in client_address);
 void udp_auth(int udp_socket, struct sockaddr_in client_address);
 void udp_message(struct Client user[MAX_CLIENTS],int client_sockets[], struct sockaddr_in client_address);
