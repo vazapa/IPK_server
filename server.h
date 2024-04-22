@@ -16,8 +16,8 @@
 
 
 
-#define BUFFER_SIZE 2048
-#define MAX_CLIENTS 5
+#define BUFFER_SIZE 4096
+#define MAX_CLIENTS 256
 
 struct Client {
     int socket_sd;

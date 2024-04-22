@@ -3,18 +3,9 @@
 #include <string.h>
 #include "server.h"
 
-// Argument	Value	Possible values 	Meaning or expected program behaviour
-// -l	    0.0.0.0	IP address	        Server listening IP address for welcome sockets
-// -p	    4567	uint16	            Server listening port for welcome sockets
-// -d	    250	    uint16	            UDP confirmation timeout
-// -r	    3	    uint8	            Maximum number of UDP retransmissions
-// -h			                        Prints program help output and exits
-
-
 int main(int argc,char *argv[]){
     char ip_addr[INET_ADDRSTRLEN]; 
     strcpy(ip_addr, "0.0.0.0"); 
-
 
     uint16_t port = 4567;
     uint16_t udp_timeout = 250;

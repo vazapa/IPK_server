@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define MAX_CLIENTS 5
+#define MAX_CLIENTS 256
 
 extern volatile sig_atomic_t keepRunning;
 extern uint16_t message_id;

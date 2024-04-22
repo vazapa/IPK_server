@@ -1,36 +1,27 @@
 #include "server.h"
-
-
 #include "common.h"
 
-
-#define BUFFER_SIZE 2048
-#define MAX_CLIENTS 5
+#define BUFFER_SIZE 4096
+#define MAX_CLIENTS 256
 #define MAX_CHANNELS 3
-
-/* TODO
-- server shall never use the Username of the authenticated user as their DisplayName
-- An example of a valid channel join failure is when the server is unable to internally create the corresponding channel or add the connection user to that channel.
-- Assuming a single connection per unique user account (username) at the most.
-- jdou posilat zpravy i kdyz uzivatel neni authnuty
----- TCP ----
-- vyresit stream
----- UDP ----
-- dynamicky port!!! -> Call sendto without calling bind first, the socket will be bound automatically (to a free port).
-- timeout a retries
-*/
 
 char buffer[BUFFER_SIZE];
 char reply_buffer[BUFFER_SIZE];
 volatile sig_atomic_t keepRunning = 1;
 uint16_t message_id = 0;
-
 uint8_t ref_id[3];
 
 void intHandler() {
     keepRunning = 0;
 }
 
+/**
+ * @brief Completes server address
+ * 
+ * @param ip_addr 
+ * @param port 
+ * @return struct sockaddr_in 
+ */
 struct sockaddr_in adress_fill(char *ip_addr,uint16_t port){
     struct sockaddr_in server_address; 
 
@@ -46,11 +37,16 @@ struct sockaddr_in adress_fill(char *ip_addr,uint16_t port){
     return server_address;
 }
 
+/**
+ * @brief Handling all sockets
+ * 
+ * @param ip_addr 
+ * @param port 
+ * @param udp_timeout 
+ * @param udp_ret 
+ */
 void server(char *ip_addr,uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
-    // printf("%d%d%s",udp_ret,udp_timeout,ip_addr);
     struct Client user[MAX_CLIENTS] = {0};
-    
-    
     
     fd_set readfds;
     int max_sd = 0;
@@ -61,18 +57,17 @@ void server(char *ip_addr,uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
     struct sockaddr *address = (struct sockaddr *) &server_address; 
     int address_size = sizeof(server_address);
 
-    int max_waiting_connections = 3; // TODO zvysit
-    int enable = 1; // TOOD umoznuje rychle znovu nastaveni portu, idk jestli to mame pouzit
+    int max_waiting_connections = 50; 
+    int enable = 1; 
 
     int udp_socket;
     udp_socket = socket(AF_INET, SOCK_DGRAM, 0);
         if (udp_socket < 0) {
-            perror("UDP socket creation failed");
-            exit(EXIT_FAILURE);
+            fprintf(stderr,"ERR: with UDP socket creation");
         }
-    // Client socket descriptors
+    
     int client_sockets[MAX_CLIENTS] = {0};
-    signal(SIGINT, intHandler); //ctrl+c and ctrl+c
+    signal(SIGINT, intHandler); 
 
     /* ------- SERVER/SOCKET INFO -------*/
     
@@ -105,7 +100,7 @@ void server(char *ip_addr,uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
 
     
     /* ------- SERVER/SOCKET INFO -------*/
-    // Main loop
+    
     while (keepRunning) {
 
         FD_ZERO(&readfds);
@@ -113,54 +108,47 @@ void server(char *ip_addr,uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
         FD_SET(welcome_socket, &readfds);
         FD_SET(udp_socket, &readfds);
 
-        // Add child sockets to set and update max_sd
+        // Add sockets
         max_sd = welcome_socket > udp_socket ? welcome_socket : udp_socket;
         for (int i = 0; i < MAX_CLIENTS; i++) {
             int sd = client_sockets[i];
-            // If valid socket descriptor, add to read list and update max_sd
+            //add to read 
             if (sd > 0) {
                 FD_SET(sd, &readfds);
                 max_sd = sd > max_sd ? sd : max_sd;
             }
         }
 
-        // Wait for activity on any of the sockets
         int activity = select(max_sd + 1, &readfds, NULL, NULL, NULL);
         if ((activity < 0) && (errno != EINTR)) {
             perror("select error");
         }
 
         /* ---------- ACCEPT ---------- */
-        // If something happened on the master socket, then it's an incoming connection
+        // Waiting for TCP activity
         if (FD_ISSET(welcome_socket, &readfds)) {
             
             tcp_accept(welcome_socket,client_sockets,client_address);
          
         }
         /* ---------- ACCEPT ---------- */
-        
+        // Waiting for UDP activity
         if (FD_ISSET(udp_socket, &readfds)) {
             handle_udp_packet(udp_socket,client_sockets,client_address,user);
             
         }
-        
-        /* ---------- COMM LOOP ---------- */
-        // Else it's some IO operation on some other socket
+        // Loop for clients, handling only TCP users
         for (int i = 0; i < MAX_CLIENTS; i++) {
             
             int sd = client_sockets[i];
 
             if (FD_ISSET(sd, &readfds)) {
-                    
-                // Check if it was for closing, and also read the incoming message
-                getpeername(sd, (struct sockaddr *) &client_address, &client_address_size); //TODO mozna pouzit neco jineho
+                
+                //Read incoming message
+                getpeername(sd, (struct sockaddr *) &client_address, &client_address_size); 
                 memset(buffer, 0, BUFFER_SIZE);
                 int valread = recv(sd, buffer, BUFFER_SIZE, 0);
                 if (valread == 0) {
-                    // Somebody disconnected, get his details and print
-                    // printf("Host disconnected, ip %s, port %d\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
-
-                    // Close the socket and mark as 0 in list for reuse
                     shutdown(sd, SHUT_RDWR); 
                     shutdown(client_sockets[i], SHUT_RDWR); 
                     close(sd);
@@ -173,7 +161,7 @@ void server(char *ip_addr,uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
                         tcp_auth(user,sd,client_address,i,client_sockets,udp_socket,address_size);
                         
                         
-                    }else if(strncmp(buffer,"JOIN",4) == 0){ //TODO handle reply                        
+                    }else if(strncmp(buffer,"JOIN",4) == 0){             
                         
                         tcp_join(user,client_address,i,sd,client_sockets,udp_socket,address_size);
 
@@ -191,36 +179,26 @@ void server(char *ip_addr,uint16_t port,uint16_t udp_timeout, uint8_t udp_ret){
 
                     }
                     memset(buffer, 0, BUFFER_SIZE);
-                    
                 }
             }
         }
     }
 
-
-    /* ---------- COMM LOOP ---------- */
-    // close(udp_socket);
-
-    /* ---------- LOOP END ---------- */
+    
     for (int i = 0; i < MAX_CLIENTS; i++) {
         user->socket_sd = client_sockets[i];
         if (user->socket_sd > 0) {
-            // Send BYE message
-            getpeername(user->socket_sd, (struct sockaddr *) &client_address, &client_address_size); //TODO mozna pouzit neco jineho
+
+            getpeername(user->socket_sd, (struct sockaddr *) &client_address, &client_address_size); 
             printf("SENT %s:%d | BYE\n", inet_ntoa(client_address.sin_addr), ntohs(client_address.sin_port));
             snprintf(buffer, BUFFER_SIZE, "BYE\r\n");
             send(user->socket_sd, buffer, strlen(buffer), 0);
-            // Close socket
+        
             
             shutdown(client_sockets[i], SHUT_RDWR); 
             close(client_sockets[i]);
-
-            
-            // Mark socket as 0 in the list
-            client_sockets[i] = 0;
         }
     }
     shutdown(welcome_socket, SHUT_RDWR); 
     close(welcome_socket); 
-    /* ---------- LOOP END ---------- */
 }

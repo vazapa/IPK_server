@@ -16,8 +16,8 @@
 
 #include "server.h"
 
-#define BUFFER_SIZE 2048
-#define MAX_CLIENTS 5
+#define BUFFER_SIZE 4096
+#define MAX_CLIENTS 256
 
 void handle_udp_packet(int udp_socket,int client_sockets[],struct sockaddr_in client_address,struct Client user[]);
 void confirm(char buffer[BUFFER_SIZE],int udp_socket,struct sockaddr_in client_address);

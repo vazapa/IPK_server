@@ -16,8 +16,8 @@
 
 #include "server.h"
 
-#define MAX_CLIENTS 5
-#define BUFFER_SIZE 2048
+#define MAX_CLIENTS 256
+#define BUFFER_SIZE 4096
 
 
 

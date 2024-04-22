@@ -1,11 +1,11 @@
 ## Omezení
-- /join u udp funguje pouze pokud neni vice stejnych display name
-- /rename u UDP nefunguje
-- bye u udp nefunguje pouze posle confirm
-- dynamicky port nefunguje
-- stream tcp korektne nefunguje
-- timeout a retries nefunguje
-- jdou posilat zpravy i kdyz uzivatel neni authnuty
-- server shall never use the Username of the authenticated user as their DisplayName
-- An example of a valid channel join failure is when the server is unable to internally create the corresponding channel or add the connection user to that channel.
-- Assuming a single connection per unique user account (username) at the most.
+
+### UDP
+- /join u udp funguje pouze pokud není více uživatelů se stejným `display_name`
+- Zpráva o odchodu klienta z kanálu není implementována 
+- Dynamický port není implementován
+- Timeout a retries nejsou implementovány
+### TCP
+- Detekování `\r\n` pro TCP stream není implementováno
+### Ostatní
+- Nejsou implementovány kontroly zpráv od uživatele, ani unikátnost údaje `username` 
